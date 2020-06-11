@@ -366,6 +366,30 @@ goroutine 1 [running]:
 exit status 2
 ```
 
+在 Python、Java 等语言中有 `try...catch` 机制，在 `try` 中捕获各种类型的异常，在 `catch` 中定义异常处理的行为。Go 语言也提供了类似的机制 `defer` 和 `recover`。
+
+```go
+func get(index int) (ret int) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Some error happened!", r)
+			ret = -1
+		}
+	}()
+	arr := [3]int{2, 3, 4}
+	return arr[index]
+}
+
+func main() {
+	fmt.Println(get(5))
+	fmt.Println("finished")
+}
+$ go run .
+Some error happened! runtime error: index out of range [5] with length 3
+-1
+finished
+```
+
 - 在 get 函数中，使用 defer 定义了异常处理的函数，在协程退出前，会执行完 defer 挂载的任务。因此如果触发了 panic，控制权就交给了 defer。
 - 在 defer 的处理逻辑中，使用 recover，使程序恢复正常，并且将返回值设置为 -1，在这里也可以不处理返回值，如果不处理返回值，返回值将被置为默认值 0。
 
