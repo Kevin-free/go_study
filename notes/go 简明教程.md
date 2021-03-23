@@ -101,7 +101,7 @@ fmt.Println(len(slice2), cap(slice2)) // 3 5
 ```go
 // 添加元素，切片容量可以根据需要自动扩展
 slice2 = append(slice2, 1, 2, 3, 4) // [0, 0, 0, 1, 2, 3, 4]
-fmt.Println(len(slice2), cap(slice2)) // 7 12
+fmt.Println(len(slice2), cap(slice2)) // 7 10
 // 子切片 [start, end)
 sub1 := slice2[3:] // [1 2 3 4]
 sub2 := slice2[:3] // [0 0 0]
