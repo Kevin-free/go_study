@@ -54,6 +54,18 @@ h.flags |= hashWriting
 
 
 
+### 并发安全的map实现的三种方式
+
+在go语言中实现多个goroutine并发安全访问修改的map的方式，主要有如下三种：
+
+| 实现方式      | 原理                                                         | 使用场景                                                     |
+| ------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| map + Mutex   | 通过Mutex互斥锁来实现多个goroutine对map的串行访问。          | 读写度需要通过Mutex加锁和解锁，适用于读写比接近的场景        |
+| map + RWMutex | 通过RWMutex读写锁来实现对map的读写分离，从而实现读的并发性能提高。 | 适用于读多写少的场景                                         |
+| sync.Map      | 底层通过分离读写map和原子指令来实现读的近似无锁，并通过延迟更新的方式来保证读的无锁化。 | 读多修改少，元素增加删除频率不高的情况，在大多数情况下替换上述两种实现。 |
+
+
+
 ### 原生 map + 锁
 
 ```go
@@ -113,9 +125,15 @@ type ConcurrentMapShared struct {
 
 ### sync.Map
 
-GO 1.9 正式加入了并发安全的字典类型 [sync.Map](https://github.com/golang/go/blob/master/src/sync/map.go)。
+可以说，上面的解决方案相当简洁，并且利用读写锁而不是Mutex可以进一步减少读写的时候因为锁带来的性能。
 
-那么，在在Go 1.9中`sync.Map`是怎么实现的呢？它是如何解决并发提升性能的呢？
+但是，它在一些场景下也有问题，如果熟悉Java的同学，可以对比一下java的`ConcurrentHashMap`的实现，在map的数据非常大的情况下，一把锁会导致大并发的客户端共争一把锁，Java的解决方案是shard, 内部使用多个锁，每个区间共享一把锁，这样减少了数据共享一把锁带来的性能影响，[orcaman](https://github.com/orcaman)提供了这个思路的一个实现： [concurrent-map](https://github.com/orcaman/concurrent-map)，他也询问了Go相关的开发人员是否在Go中也实现这种[方案](https://github.com/golang/go/issues/20360)，由于实现的复杂性，答案是Yes, we considered it.,但是除非有特别的性能提升和应用场景，否则没有进一步的开发消息。
+
+
+
+GO 1.9 正式加入了并发安全的字典类型 [sync.Map](https://github.com/golang/go/blob/master/src/sync/map.go)。那么，`sync.Map`是怎么实现的呢？它是如何解决并发提升性能的呢？
+
+
 
 `sync.Map`的实现有几个优化点，这里先列出来，我们后面慢慢分析。
 
@@ -138,7 +156,16 @@ GO 1.9 正式加入了并发安全的字典类型 [sync.Map](https://github.com/
 // Map类似于Go Map [interface{}]interface{}
 // 但对于并发使用是安全的，通过多个 goroutine 不需额外的锁或同步
 // 加载、存储和删除在常数时间内运行。
-// ……
+// 
+// 这个Map类型是独特的。大多数代码应该使用普通的map，
+// 用单独的锁或同步，为了更好的类型安全
+// 并且使他更容易维护映射内容的其他不变量。
+//
+// 这个Map用与优化这两种常见情况：
+// 1、当一个给定的键只写一次，读多次，就像在只增长的缓存中一样；
+// 2、当多个goroutines读取、写入和覆盖不相交的键时。
+// 这两种情况，使用此Map相较于用Mutex或RWMutex，可以显著减少锁的争用。
+//
 // 初次使用之后不能复制。
 // （笔者注：因为当sync.Map被拷贝之后，Map类型的dirty还是那个map，但是read和锁却不是之前的（不在同一世界你拿什么保护我），所以必然导致并发不安全）
 type Map struct {
@@ -161,7 +188,9 @@ type Map struct {
 }
 ```
 
+它的数据结构很简单，值包含四个字段：`read`、`mu`、`dirty`、`misses`。
 
+它使用了冗余的数据结构`read`和`dirty`。dirty中回包含read中未删除的entires，新增加的entires会加入dirty中。
 
 
 
@@ -180,4 +209,6 @@ type Map struct {
 [golang 并发安全Map以及分段锁的实现](https://segmentfault.com/a/1190000018448064)
 
 [Go 1.9 sync.Map揭秘](https://colobu.com/2017/07/11/dive-into-sync-Map/#sync-Map)
+
+[图解Go里面的sync.Map了解编程语言核心实现源码](https://www.codenong.com/j5e08df68f265da33a41/)
 
